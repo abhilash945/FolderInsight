@@ -3,5 +3,5 @@
 *.txt
 *.db
 *.exe
-/release/
+!/release/*.exe
 /.vscode/

@@ -16,10 +16,10 @@ Project folder structure
 │   ├── FolderInsight-linux
 │   ├── FolderInsight-windows.exe
 │   └── FolderInsight-macos
-├── /src/                               # Source code
-│   ├── main.go                         # main application file
-│   └── (other .go files)
-│
+├── main.go                             # main application file
+├── (all the other .go files)
 ├── LICENSE
 ├── README.md
+├── go.mod
+├── go.sum
 ```
