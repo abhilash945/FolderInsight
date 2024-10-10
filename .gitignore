@@ -1,0 +1,7 @@
+# all git ignored files
+*.log
+*.txt
+*.db
+*.exe
+/release/
+/.vscode/
