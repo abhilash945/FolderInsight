@@ -23,10 +23,12 @@ import (
 
 // Global variables
 var (
+	dirPath               string
+	DBfile                string
 	updateErrorOnly       bool
 	debug                 bool
-	channelSize           = 50000
-	insertionBatchSizeSQL = 100 // Number of rows to insert in one query
+	channelSize           int
+	insertionBatchSizeSQL = 200 // Number of rows to insert in one query
 	infoMultiLogger       *log.Logger
 	errorMultiLogger      *log.Logger
 	infoFileLogger        *log.Logger
@@ -64,53 +66,55 @@ type ErrorObjectInfo struct {
 func main() {
 	preCheckErrors := false //assume as no precheck errors
 	// Define flags
-	tmp_Path := flag.String("Path", "", "Folder to scan (mandatory)")
-	tmp_DBfile := flag.String("DBfile", "", "Result report DB file (mandatory)")
-	flag.BoolVar(&debug, "debug", false, "Enable debug logging (optional, false by default)")
-	flag.BoolVar(&updateErrorOnly, "UpdateErrorOnly", false, "Run scan only on failed directories (optional, false by default)")
+	flag.StringVar(&dirPath, "Path", "", "Folder to scan (mandatory)")
+	flag.StringVar(&DBfile, "DBfile", "", "Result report DB file (mandatory)")
+	flag.IntVar(&channelSize, "BufferSize", 100000, "meta data buffer size (optional)")
+	flag.IntVar(&insertionBatchSizeSQL, "SQLBatchSize", 200, "DB batch size for buffered insertions (optional)")
+	flag.BoolVar(&debug, "debug", false, "Enable debug logging (optional, default is false)")
+	flag.BoolVar(&updateErrorOnly, "UpdateErrorOnly", false, "Run scan only on failed directories (optional, default is false)")
 	// Parse provided flags
 	flag.Parse()
 
 	//check if the mandatory fields are missing
-	if *tmp_Path == "" || *tmp_DBfile == "" {
+	if dirPath == "" || DBfile == "" {
 		fmt.Println("Mandatory fields are missing, check with -help")
 		os.Exit(0)
 	}
 
 	//check if the directory is a valid one
-	if info, err := os.Stat(*tmp_Path); err != nil {
-		fmt.Println("Cannot read the Path,", *tmp_Path, "error message:", err)
+	if info, err := os.Stat(dirPath); err != nil {
+		fmt.Println("Cannot read the Path,", dirPath, "error message:", err)
 		preCheckErrors = true
 	} else if !info.IsDir() {
-		fmt.Println("The Path", *tmp_Path, "is not a directory!")
+		fmt.Println("The Path", dirPath, "is not a directory!")
 		preCheckErrors = true
 	}
 
 	// check if the DB report file has the extention and add if it doesn't have it
-	if !strings.HasSuffix(*tmp_DBfile, ".db") {
-		*tmp_DBfile += ".db"
+	if !strings.HasSuffix(DBfile, ".db") {
+		DBfile += ".db"
 	}
 	// Check if the DB report file exists
-	info, err := os.Stat(*tmp_DBfile)
+	info, err := os.Stat(DBfile)
 	if err == nil {
 		if info.IsDir() {
-			fmt.Println("The DBfile", *tmp_DBfile, "cannot be a directory!")
+			fmt.Println("The DBfile", DBfile, "cannot be a directory!")
 			preCheckErrors = true
 		} else {
 			if !updateErrorOnly {
-				fmt.Println("Looks like the DBfile", *tmp_DBfile, "already exists.")
+				fmt.Println("Looks like the DBfile", DBfile, "already exists.")
 				fmt.Println("Either run the report to a new file or run with -updateErrorOnly=true options")
 				preCheckErrors = true
 			}
 		}
 	} else if errors.Is(err, os.ErrNotExist) {
 		if updateErrorOnly {
-			fmt.Println("Looks like the DBfile", *tmp_DBfile, "doesn't exists.")
+			fmt.Println("Looks like the DBfile", DBfile, "doesn't exists.")
 			fmt.Println("Hence, -updateErrorOnly=false must be defined or this parameter must be omitted.")
 			preCheckErrors = true
 		}
 	} else {
-		fmt.Println("Error while checking", *tmp_DBfile, "error message:", err)
+		fmt.Println("Error while checking", DBfile, "error message:", err)
 		preCheckErrors = true
 	}
 
@@ -119,9 +123,7 @@ func main() {
 		os.Exit(0)
 	}
 
-	dirPath := *tmp_Path                                           //directory to scan/read
-	DBfile := *tmp_DBfile                                          //DBfile name to write all the meta data
-	logFileName := strings.TrimSuffix(*tmp_DBfile, ".db")          //log file name to store all the current logs
+	logFileName := strings.TrimSuffix(DBfile, ".db")               //log file name to store all the current logs
 	timestamp := time.Now().Format("20060102_150405")              //Example format: 20240811_103045
 	logFileName = fmt.Sprintf("%s_%s.log", logFileName, timestamp) //Append the current timestamp and .log suffix
 
