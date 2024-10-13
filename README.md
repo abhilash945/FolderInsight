@@ -48,9 +48,7 @@ External packages used:
 
 Release notes:
 
-FolderInsight_v0.1.1.exe  
-> '-BufferSize' and -SQLBatchSize' command line parameters are added  
-> debug logs improved  
-
-FolderInsight_v0.1.0.exe  
-> Basic working model
+FolderInsight_v0.1.0  
+. Basic working model  
+. '-BufferSize' and -SQLBatchSize' command line parameters are added  
+. debug logs improved  
