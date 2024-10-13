@@ -232,8 +232,7 @@ func readFolder(ctx context.Context, path string, FSdata chan<- ObjectInfo, dept
 
 	// infoFileLogger.Println("Number of readFolder routines running:", atomic.LoadInt32(&readFolderCounter))
 	if debug {
-		infoFileLogger.Printf("no of active goroutines: %d", runtime.NumGoroutine())
-		infoFileLogger.Printf("Pending data to be written to DB: %d", len(FSdata))
+		infoFileLogger.Printf("no of active/waiting goroutines: %d and pending data to be written to DB: %d", runtime.NumGoroutine(), len(FSdata))
 	}
 
 	if ctx.Err() != nil {
