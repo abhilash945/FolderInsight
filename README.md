@@ -26,8 +26,8 @@ Example usage:
 .\FolderInsight.exe -DBfile=temp -Path="C:\Temp" -debug=true
 .\FolderInsight.exe -DBfile=temp -Path="C:\Temp" -UpdateErrorOnly=true
 .\FolderInsight.exe -DBfile=temp -Path="C:\Temp" -UpdateErrorOnly=true -debug=true
-.\FolderInsight.exe -DBfile=temp -Path="C:\Temp" -UpdateErrorOnly=true -debug=true -UpdateWindowsFileOwner=true
 ```
+
 
 
 ```
@@ -46,7 +46,7 @@ Project folder structure:
 ├── go.sum
 ```
 
-General notes:
+General notes:  
 Programming language: Golang  
 Supported Windows Operating Systems:  
 Windows 7 and later  
