@@ -23,32 +23,35 @@ import (
 
 // Global variables
 var (
-	dirPath               string
-	DBfile                string
-	updateErrorOnly       bool
-	debug                 bool
-	channelSize           int
-	insertionBatchSizeSQL = 200 // Number of rows to insert in one query
-	infoMultiLogger       *log.Logger
-	errorMultiLogger      *log.Logger
-	infoFileLogger        *log.Logger
+	dirPath                string
+	DBfile                 string
+	updateErrorOnly        bool
+	debug                  bool
+	updateWindowsFileOwner bool
+	channelSize            int
+	insertionBatchSizeSQL  = 200 // Number of rows to insert in one query
+	infoMultiLogger        *log.Logger
+	errorMultiLogger       *log.Logger
+	infoFileLogger         *log.Logger
 	// readFolderCounter     int32                       // Atomic counter for active goroutines
 	sem = make(chan struct{}, 8000) // semaphore used to set max goroutines
 )
 
 // Represents the scan data gathered and stored to DB
 type ObjectInfo struct {
-	ObjType        string // d- directory, f- file, l- link, o- other
-	Path           string
-	ObjectDepth    int
-	FileSize       int //size of a file
-	FolderSize     int //folder size with all the containing files
-	TotalSize      int //size of all the files & subfolders
-	hasError       bool
-	ErrorMessage   string
-	CreationTime   time.Time
-	LastWriteTime  time.Time
-	LastAccessTime time.Time
+	ObjType            string // d- directory, f- file, l- link, o- other
+	Path               string
+	ObjectDepth        int
+	FileSize           int //size of a file
+	ThisFolderSize     int //folder size with all the containing files only
+	TotalCalFolderSize int //Total folder size(with all the containing files & subfolders)
+	hasError           bool
+	ErrorMessage       string
+	Owner              string
+	CreationTime       time.Time
+	LastWriteTime      time.Time
+	CalLastWriteTime   time.Time
+	LastAccessTime     time.Time
 	// CreatedBy        string // Placeholder, platform-specific implementation needed
 	// LastModifiedBy   string // Placeholder, platform-specific implementation needed
 	// SubObjects       []ObjectInfo
@@ -62,6 +65,12 @@ type ErrorObjectInfo struct {
 	ObjectDepth int
 }
 
+// FolderInfoCal struct holds folder information
+type FolderInfoCal struct {
+	TotalCalFolderSize int
+	CalLastWriteTime   time.Time
+}
+
 // starts here
 func main() {
 	preCheckErrors := false //assume as no precheck errors
@@ -72,6 +81,7 @@ func main() {
 	flag.IntVar(&insertionBatchSizeSQL, "SQLBatchSize", 200, "DB batch size for buffered insertions (optional)")
 	flag.BoolVar(&debug, "debug", false, "Enable debug logging (optional, default is false)")
 	flag.BoolVar(&updateErrorOnly, "UpdateErrorOnly", false, "Run scan only on failed directories (optional, default is false)")
+	flag.BoolVar(&updateWindowsFileOwner, "UpdateWindowsFileOwner", false, "Update the file owner or creater name (optional, default is false, applicable in windows only)")
 	// Parse provided flags
 	flag.Parse()
 
@@ -147,6 +157,7 @@ func main() {
 	infoMultiLogger.Println("SQL report DB filename", DBfile)
 	infoMultiLogger.Println("Scan only on the error folders?", updateErrorOnly)
 	infoMultiLogger.Println("Is debugging enabled?", debug)
+	infoMultiLogger.Println("Is UpdateWindowsFileOwner enabled?", updateWindowsFileOwner)
 	fmt.Println("Logs will be saved to", logFileName, "file.")
 	timestamp = time.Now().Format("20060102_150405") //reused the previous timestamp var as its not needed anymore
 	infoMultiLogger.Println("Scan start time:", timestamp)
@@ -217,7 +228,8 @@ func main() {
 	close(FSdata)
 	wg2.Wait()
 
-	postScanMetaDataUpdate(DBfile)
+	// postScanMetaDataUpdate()
+	updateSizeLastWriteDate()
 	timestamp = time.Now().Format("20060102_150405") //reused the previous timestamp var as its not needed anymore
 	infoMultiLogger.Println("Scan end time:", timestamp)
 	infoMultiLogger.Println("The End!")
@@ -246,8 +258,7 @@ func readFolder(ctx context.Context, path string, FSdata chan<- ObjectInfo, dept
 	currentFolderData.Path = path
 	currentFolderData.ObjectDepth = depth
 	currentFolderData.FileSize = 0
-	currentFolderData.FolderSize = 0
-	currentFolderData.TotalSize = 0
+	currentFolderData.ThisFolderSize = 0
 
 	// Get folder information
 	info, err := os.Stat(path)
@@ -257,15 +268,16 @@ func readFolder(ctx context.Context, path string, FSdata chan<- ObjectInfo, dept
 		errorMultiLogger.Printf("Failed to get directory info %s: %v", path, err)
 	} else {
 		//set the folder size which will just be the meta data size
-		currentFolderData.FolderSize = int(info.Size())
+		currentFolderData.ThisFolderSize = int(info.Size())
 
-		ctime, atime, wtime, err := getFileTimes(path)
+		ctime, atime, wtime, owner, err := getFileTimes(path)
 		if err != nil {
 			errorMultiLogger.Println(err)
 		}
 		currentFolderData.CreationTime = ctime
 		currentFolderData.LastAccessTime = atime
 		currentFolderData.LastWriteTime = wtime
+		currentFolderData.Owner = owner
 
 		// Read the directory contents
 		entries, err := os.ReadDir(path)
@@ -293,8 +305,7 @@ func readFolder(ctx context.Context, path string, FSdata chan<- ObjectInfo, dept
 					newFileData.Path = fullPath
 					newFileData.ObjectDepth = depth
 					newFileData.FileSize = 0
-					newFileData.FolderSize = 0
-					newFileData.TotalSize = 0
+					newFileData.ThisFolderSize = 0
 					// Get file information
 					// info, err := os.Stat(fullPath)
 					info, err := entry.Info()
@@ -306,18 +317,19 @@ func readFolder(ctx context.Context, path string, FSdata chan<- ObjectInfo, dept
 						newFileData.FileSize = int(info.Size())
 						totalCurrentFolderSize += newFileData.FileSize
 
-						ctime, atime, wtime, err := getFileTimes(fullPath)
+						ctime, atime, wtime, owner, err := getFileTimes(fullPath)
 						if err != nil {
 							errorMultiLogger.Println(err)
 						}
 						newFileData.CreationTime = ctime
 						newFileData.LastAccessTime = atime
 						newFileData.LastWriteTime = wtime
+						newFileData.Owner = owner
 					}
 					FSdata <- *newFileData
 				}
 			}
-			currentFolderData.FolderSize = totalCurrentFolderSize
+			currentFolderData.ThisFolderSize = totalCurrentFolderSize
 		}
 	}
 	FSdata <- *currentFolderData
@@ -343,12 +355,14 @@ func writeMetaDataToSQliteDB(FSdata <-chan ObjectInfo, wg2 *sync.WaitGroup, canc
         Path TEXT PRIMARY KEY UNIQUE,
         ObjectDepth INTEGER,
 		FileSize INTEGER,
-        FolderSize INTEGER,
-        TotalSize INTEGER,
+        ThisFolderSize INTEGER,
+        TotalCalFolderSize INTEGER,
         hasError BOOLEAN,
         ErrorMessage TEXT,
+		Owner TEXT,
         CreationTime DATETIME,
         LastWriteTime DATETIME,
+        CalLastWriteTime DATETIME,
         LastAccessTime DATETIME
     );`
 
@@ -362,8 +376,8 @@ func writeMetaDataToSQliteDB(FSdata <-chan ObjectInfo, wg2 *sync.WaitGroup, canc
 
 	placeholders := make([]string, 0, insertionBatchSizeSQL)
 	values := make([]interface{}, 0, insertionBatchSizeSQL*11) // Each row has 11 values
-	insertStmt := `INSERT INTO fileinfo (ObjType, Path, ObjectDepth, FileSize, FolderSize, 
-	TotalSize, hasError, ErrorMessage, CreationTime, LastWriteTime, LastAccessTime) VALUES `
+	insertStmt := `INSERT INTO fileinfo (ObjType, Path, ObjectDepth, FileSize, ThisFolderSize, 
+	hasError, ErrorMessage, Owner, CreationTime, LastWriteTime, LastAccessTime) VALUES `
 
 	currentIteration := 0 //used to count the number of batch insertions done
 	for data := range FSdata {
@@ -371,7 +385,7 @@ func writeMetaDataToSQliteDB(FSdata <-chan ObjectInfo, wg2 *sync.WaitGroup, canc
 		placeholders = append(placeholders, "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
 		// Collect values for the placeholders
 		values = append(values, data.ObjType, data.Path, data.ObjectDepth, data.FileSize,
-			data.FolderSize, data.TotalSize, data.hasError, data.ErrorMessage,
+			data.ThisFolderSize, data.hasError, data.ErrorMessage, data.Owner,
 			data.CreationTime, data.LastWriteTime, data.LastAccessTime)
 
 		// When we hit the batch size, execute the insert
@@ -407,10 +421,9 @@ func writeMetaDataToSQliteDB(FSdata <-chan ObjectInfo, wg2 *sync.WaitGroup, canc
 	infoMultiLogger.Println("End of the DB insertion.")
 }
 
-// To perform post operations on folders and update the 'total size of folder'
-// and 'LastWriteTime' including/considering the subfolders.
-func postScanMetaDataUpdate(DBfile string) {
-	infoMultiLogger.Println("Starting the postScanMetaDataUpdate now")
+// updateTotalCalSize updates TotalCalSize for each folder by summing its size and all its subfolders' sizes
+func updateSizeLastWriteDate() {
+	infoMultiLogger.Println("Starting the updateSizeLastWriteDate now")
 	// Open the database connection
 	db, err := sql.Open("sqlite", DBfile)
 	if err != nil {
@@ -420,16 +433,16 @@ func postScanMetaDataUpdate(DBfile string) {
 	db.Exec("PRAGMA journal_mode=WAL;")
 	defer db.Close()
 
-	// Get total row count by running a separate COUNT query
-	totalFolders := 0
-	err = db.QueryRow("SELECT COUNT(*) FROM fileinfo WHERE ObjType = 'd'").Scan(&totalFolders)
-	if err != nil {
-		errorMultiLogger.Println("failed to execute the count query:", err)
-	}
-	infoMultiLogger.Printf("Total no of folders: %d\n", totalFolders)
+	// // Map to hold cumulative TotalCalSize for each folder
+	// folderTotalCalSize := make(map[string]int)
+	// // Map to hold cumulative CalLastWriteTime for each folder
+	// folderLastWriteTimes := make(map[string]time.Time)
+
+	// Map to hold cumulative TotalCalSize for each folder
+	calculatedData := make(map[string]FolderInfoCal)
 
 	// Prepare the SQL query
-	query := `SELECT Path, ObjectDepth, FolderSize,LastWriteTime FROM fileinfo WHERE ObjType = 'd' ORDER BY ObjectDepth DESC;`
+	query := `SELECT Path, ThisFolderSize,LastWriteTime FROM fileinfo WHERE ObjType = 'd';`
 	// Execute the query
 	rows, err := db.Query(query)
 	if err != nil {
@@ -439,60 +452,98 @@ func postScanMetaDataUpdate(DBfile string) {
 	defer rows.Close()
 
 	// Loop through the result set
-	currentIteration := 0 // Initialize the iteration counter
 	for rows.Next() {
-		currentIteration++
 		var path string
-		var objectDepth int
-		var folderSize int
-		var lastWriteTime string
+		var size int
+		var lastWriteTime time.Time
 
 		// Scan the current row into variables
-		if err := rows.Scan(&path, &objectDepth, &folderSize, &lastWriteTime); err != nil {
+		if err := rows.Scan(&path, &size, &lastWriteTime); err != nil {
 			errorMultiLogger.Println("failed to scan row:", err)
 			return
 		}
-		// Process each directory
-		infoMultiLogger.Printf("Processing %d of %d directories.\n", currentIteration, totalFolders)
-		// Query to calculate the sum of Totalsize for all subdirectories
-		sumQuery := `
-        SELECT COALESCE(SUM(Totalsize), 0)
-        FROM fileinfo
-        WHERE Path LIKE ? || '%' AND ObjType = 'd' AND ObjectDepth = ?;`
+		// Process the data
+		// folderTotalCalSize[path] += size
+		// folderLastWriteTimes[path] = lastWriteTime
 
-		totalSize := 0
-		err = db.QueryRow(sumQuery, path+"\\", objectDepth+1).Scan(&totalSize)
-		if err != nil {
-			errorMultiLogger.Printf("Failed to calculate total size for %s with objectDepth of %d, Error message: %s", path, objectDepth, err)
-			return
-		}
+		// calculatedData[path] = FolderInfoCal{
+		// 	TotalCalFolderSize: 1000,
+		// 	CalLastWriteTime:   time.Now(),
+		// }
 
-		// Query to find the max LastWriteTime with a fallback value from a variable
-		maxLastWriteQuery2 := fmt.Sprintf(`
-    	SELECT COALESCE(MAX(LastWriteTime), '%s')
-    	FROM fileinfo
-    	WHERE Path LIKE ? || '%%' AND ObjType = 'd' AND ObjectDepth = ?;`, lastWriteTime)
+		for {
+			if folderInfo, exists := calculatedData[path]; exists {
+				// If it exists, update the existing struct
+				folderInfo.TotalCalFolderSize += size // Modify size
+				if lastWriteTime.After(folderInfo.CalLastWriteTime) {
+					folderInfo.CalLastWriteTime = lastWriteTime // Update last write time
+				}
+				calculatedData[path] = folderInfo // Save back updated struct
+			} else {
+				// If it does not exist, initialize and insert a new struct
+				calculatedData[path] = FolderInfoCal{
+					TotalCalFolderSize: size,          // Initial size
+					CalLastWriteTime:   lastWriteTime, // Current time
+				}
+			}
 
-		err = db.QueryRow(maxLastWriteQuery2, path+"\\", objectDepth+1).Scan(&lastWriteTime)
-		if err != nil {
-			errorMultiLogger.Printf("Failed to calculate  max LastWriteTime for %s with objectDepth of %d, Error message: %s", path, objectDepth, err)
-			return
-		}
+			// Find the last separator (either '/' or '\')
+			lastSeparator := strings.LastIndexAny(path, `\/`)
+			if lastSeparator == -1 {
+				break // No more separators, so we're at the root
+			}
 
-		// Update the TotalSize column for the current directory
-		updateQuery := `UPDATE fileinfo SET Totalsize = ?, LastWriteTime = ? WHERE Path = ? AND ObjType = 'd' AND ObjectDepth = ?;`
-		_, err = db.Exec(updateQuery, totalSize+folderSize, lastWriteTime, path, objectDepth)
-		if err != nil {
-			errorMultiLogger.Printf("Failed to update TotalSize for %s, Error message: %s", path, err)
-			return
+			if path[:lastSeparator] < dirPath {
+				break // we have crossed the user provided directory
+			} else if dirPath == path[:lastSeparator+1] {
+				path = path[:lastSeparator+1] // Move up to the parent directory
+
+			} else if dirPath == path[:lastSeparator] {
+				path = path[:lastSeparator] // Move up to the parent directory
+			} else {
+				path = path[:lastSeparator] // Move up to the parent directory
+			}
+
+			// folderTotalCalSize[path] += size
+			// if lastWriteTime.After(folderLastWriteTimes[path]) {
+			// 	folderLastWriteTimes[path] = lastWriteTime
+			// }
 		}
 	}
 
-	// Check for errors encountered during iteration
-	if err := rows.Err(); err != nil {
-		errorMultiLogger.Println("error during row iteration: ", err)
+	// Now perform a batch update to the database for all folders
+	tx, err := db.Begin() // Start a transaction for batch updating
+	if err != nil {
+		errorMultiLogger.Printf("failed to start transaction: %v", err)
 		return
 	}
 
-	infoMultiLogger.Println("postScanMetaDataUpdate completed")
+	// Prepare the update statement
+	updateStmt, err := tx.Prepare(`
+		UPDATE fileinfo
+		SET TotalCalFolderSize = ?, CalLastWriteTime = ?
+		WHERE Path = ?;
+	`)
+	if err != nil {
+		errorMultiLogger.Printf("failed to prepare update statement: %v", err)
+		return
+	}
+	defer updateStmt.Close()
+
+	// Batch update all folders
+	for path, calData := range calculatedData {
+		if _, err := updateStmt.Exec(calData.TotalCalFolderSize, calData.CalLastWriteTime, path); err != nil {
+			tx.Rollback()
+			errorMultiLogger.Printf("failed to update TotalCalFolderSize for %s: %v", path, err)
+			return
+		}
+	}
+
+	// Commit the transaction to apply the updates
+	if err := tx.Commit(); err != nil {
+		errorMultiLogger.Printf("failed to commit transaction: %v", err)
+		return
+	}
+
+	infoMultiLogger.Println("End of updateSizeLastWriteDate")
 }

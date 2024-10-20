@@ -19,6 +19,14 @@ Usage of C:\FolderInsight\FolderInsight.exe:
   -debug
         Enable debug logging (optional, default is false)
 PS C:\FolderInsight>
+Example usage:
+.\FolderInsight.exe -DBfile=temp -Path="C:\Temp"
+.\FolderInsight.exe -DBfile=temp -Path="C:\Temp" -UpdateWindowsFileOwner=true
+.\FolderInsight.exe -DBfile=temp -Path="C:\Temp" -UpdateWindowsFileOwner=true -debug=true
+.\FolderInsight.exe -DBfile=temp -Path="C:\Temp" -debug=true
+.\FolderInsight.exe -DBfile=temp -Path="C:\Temp" -UpdateErrorOnly=true
+.\FolderInsight.exe -DBfile=temp -Path="C:\Temp" -UpdateErrorOnly=true -debug=true
+.\FolderInsight.exe -DBfile=temp -Path="C:\Temp" -UpdateErrorOnly=true -debug=true -UpdateWindowsFileOwner=true
 ```
 
 
@@ -36,17 +44,26 @@ Project folder structure:
 ├── README.md
 ├── go.mod
 ├── go.sum
-├── go.sum
 ```
 
-
+General notes:
 Programming language: Golang  
+Supported Windows Operating Systems:  
+Windows 7 and later  
+Windows Server 2012 and later  
+
+
 External packages used:  
 ── golang.org/x/sys/unix       # for unix file times gather  
 ── modernc.org/sqlite          # Pure Go SQLite driver  
 
 
 Release notes:
+FolderInsight_v0.1.1  
+. Renamed few existing DB columns.
+. Added new column TotalCalFolderSize & CalLastWriteTime in the DB report.
+. Added, in-memeory processing of TotalCalFolderSize & CalLastWriteTime values.
+. Added optional '-updateWindowsFileOwner' field to gather file/folder owner name optionally.
 
 FolderInsight_v0.1.0  
 . Basic working model  

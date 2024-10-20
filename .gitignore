@@ -1,6 +1,8 @@
 # all git ignored files
 *.log
 *.txt
+*.csv
+*.ps1
 *.db
 *.exe
 !/release/*.exe
