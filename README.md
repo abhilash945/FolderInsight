@@ -58,12 +58,12 @@ External packages used:
 ── modernc.org/sqlite          # Pure Go SQLite driver  
 
 
-Release notes:
+Release notes:  
 FolderInsight_v0.1.1  
-. Renamed few existing DB columns.
-. Added new column TotalCalFolderSize & CalLastWriteTime in the DB report.
-. Added, in-memeory processing of TotalCalFolderSize & CalLastWriteTime values.
-. Added optional '-updateWindowsFileOwner' field to gather file/folder owner name optionally.
+. Renamed few existing DB columns.  
+. Added new column TotalCalFolderSize & CalLastWriteTime in the DB report.  
+. Added, in-memeory processing of TotalCalFolderSize & CalLastWriteTime values.  
+. Added optional '-updateWindowsFileOwner' field to gather file/folder owner name optionally.  
 
 FolderInsight_v0.1.0  
 . Basic working model  
