@@ -1,5 +1,5 @@
 # FolderInsight
-A Golang based project &amp; tool that scans all the subfolders, files and present the report in SQLite DB file.
+A Golang based project &amp; tool that scans all the files & folders and generate a meta data report in SQLite .db file.
 
 This is a simple tool that take the folder path (local or on network) and a report/output file name as parameters and generate a report in a .DB file. This will gather the properties of all the folders and files like name, depth, size, error, creation time, last write time, last access time, Total folder size(including the sub folders & files), calculated last write time(derived from the inner files & folders) and optionally the owner name.
 
