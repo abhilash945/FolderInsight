@@ -72,3 +72,7 @@ FolderInsight_v0.1.0
 . Basic working model  
 . '-BufferSize' and -SQLBatchSize' command line parameters are added  
 . debug logs improved  
+
+
+Contact me:  
+abhilash945@gmail.com
